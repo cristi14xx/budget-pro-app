@@ -1,791 +1,722 @@
-// ==========================================
-// BUDGET PRO - MAIN APP
-// ==========================================
+// ============================================
+// BUDGET TRACKER APP - Main JavaScript
+// ============================================
 
-// Firebase Config
-const firebaseConfig = {
-    apiKey: "AIzaSyB1WmFllcL533zhqG4ARD6Wx35YUksLmW4",
-    authDomain: "budget-pro-7ea05.firebaseapp.com",
-    projectId: "budget-pro-7ea05",
-    storageBucket: "budget-pro-7ea05.firebasestorage.app",
-    messagingSenderId: "789859338778",
-    appId: "1:789859338778:web:a7046602a4d37cc5465fa3"
-};
+// ⚠️ IMPORTANT: Înlocuiește URL-ul de mai jos cu cel primit de la Google Apps Script
+const API_URL = 'YOUR_GOOGLE_SCRIPT_URL_HERE';
 
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
-db.enablePersistence().catch(() => {});
+// ============================================
+// DATA & STATE
+// ============================================
 
-// Categories
 const CATEGORIES = {
     expense: {
-        'Mâncare': '🍽️',
-        'Transport': '🚗',
-        'Locuință': '🏠',
-        'Utilități': '💡',
-        'Cumpărături': '🛍️',
-        'Divertisment': '🎬',
-        'Sănătate': '💊',
-        'Educație': '📚',
-        'Abonamente': '📱',
-        'Altele': '📦'
+        'Locuință': { icon: '🏠', subcategories: ['Chirie', 'Utilități', 'Întreținere', 'Mobilă'] },
+        'Abonamente': { icon: '📱', subcategories: ['YouTube Premium', 'Apple Music', 'Netflix', 'Spotify', 'Vodafone', 'Comedy Box', 'Abonament Solo', 'Alte abonamente'] },
+        'Mâncare': { icon: '🍽️', subcategories: ['Supermarket', 'Restaurante', 'Livrări', 'Cafea'] },
+        'Transport': { icon: '🚗', subcategories: ['Benzină', 'Transport public', 'Taxi/Uber', 'Parcare', 'Întreținere auto'] },
+        'Sport': { icon: '💪', subcategories: ['Sala', 'Suplimente', 'Dansuri', 'Echipament'] },
+        'Sănătate': { icon: '🏥', subcategories: ['Farmacie', 'Medic', 'Analize', 'Stomatolog'] },
+        'Divertisment': { icon: '🎬', subcategories: ['Cinema', 'Concerte', 'Jocuri', 'Ieșiri'] },
+        'Investiții': { icon: '📈', subcategories: ['Bursă', 'Crypto', 'Economii'] },
+        'Îmbrăcăminte': { icon: '👕', subcategories: ['Haine', 'Încălțăminte', 'Accesorii'] },
+        'Educație': { icon: '📚', subcategories: ['Cursuri', 'Cărți', 'Subscripții'] },
+        'Altele': { icon: '📦', subcategories: ['Cadouri', 'Diverse'] }
     },
     income: {
-        'Salariu': '💼',
-        'Freelance': '💻',
-        'Investiții': '📈',
-        'Cadouri': '🎁',
-        'Alte venituri': '💰'
+        'Salariu': { icon: '💼', subcategories: ['Salariu net', 'Bonusuri', 'Prime'] },
+        'Freelance': { icon: '💻', subcategories: ['Proiecte', 'Consultanță'] },
+        'Investiții': { icon: '📊', subcategories: ['Dividende', 'Dobânzi', 'Câștiguri'] },
+        'Alte venituri': { icon: '💰', subcategories: ['Vânzări', 'Rambursări', 'Diverse'] }
     }
 };
 
-// State
-const state = {
-    user: null,
+const MONTHS_RO = ['Ianuarie', 'Februarie', 'Martie', 'Aprilie', 'Mai', 'Iunie', 
+                   'Iulie', 'August', 'Septembrie', 'Octombrie', 'Noiembrie', 'Decembrie'];
+
+let state = {
     transactions: [],
-    goals: [],
+    budgets: [],
+    currentMonth: new Date().getMonth(),
+    currentYear: new Date().getFullYear(),
     currentType: 'expense',
-    currency: localStorage.getItem('currency') || 'RON',
-    geminiKey: localStorage.getItem('geminiKey') || '',
-    chart: null
+    editingId: null,
+    theme: localStorage.getItem('theme') || 'dark',
+    isOnline: navigator.onLine
 };
 
-// ==========================================
+// ============================================
 // INITIALIZATION
-// ==========================================
+// ============================================
+
 document.addEventListener('DOMContentLoaded', () => {
-    initAuth();
+    initTheme();
     initEventListeners();
+    loadData();
+    registerServiceWorker();
+    
+    // Check online status
+    window.addEventListener('online', () => {
+        state.isOnline = true;
+        syncData();
+        showToast('Conectat! Sincronizare...', 'success');
+    });
+    
+    window.addEventListener('offline', () => {
+        state.isOnline = false;
+        showToast('Offline - datele se salvează local', 'info');
+    });
 });
 
-function initAuth() {
-    auth.onAuthStateChanged(user => {
-        if (user) {
-            state.user = user;
-            showApp();
-            loadData();
-            updateUserUI();
-        } else {
-            state.user = null;
-            showAuthScreen();
-        }
-    });
-}
-
-function showApp() {
-    document.getElementById('auth-screen').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-}
-
-function showAuthScreen() {
-    document.getElementById('auth-screen').classList.remove('hidden');
-    document.getElementById('app').classList.add('hidden');
-}
-
-// ==========================================
-// EVENT LISTENERS
-// ==========================================
-function initEventListeners() {
-    // Auth tabs
-    document.querySelectorAll('.auth-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            const isLogin = tab.dataset.tab === 'login';
-            document.getElementById('login-form').classList.toggle('hidden', !isLogin);
-            document.getElementById('register-form').classList.toggle('hidden', isLogin);
-        });
-    });
-
-    // Login
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
-        try {
-            await auth.signInWithEmailAndPassword(email, password);
-        } catch (err) {
-            alert('Eroare: ' + err.message);
-        }
-    });
-
-    // Register
-    document.getElementById('register-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const name = document.getElementById('register-name').value;
-        const email = document.getElementById('register-email').value;
-        const password = document.getElementById('register-password').value;
-        try {
-            const result = await auth.createUserWithEmailAndPassword(email, password);
-            await result.user.updateProfile({ displayName: name });
-        } catch (err) {
-            alert('Eroare: ' + err.message);
-        }
-    });
-
-    // Google login
-    document.getElementById('google-btn').addEventListener('click', async () => {
-        try {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            await auth.signInWithPopup(provider);
-        } catch (err) {
-            alert('Eroare: ' + err.message);
-        }
-    });
-
-    // Logout
-    document.getElementById('logout-btn').addEventListener('click', () => auth.signOut());
-
-    // Add transaction button
-    document.getElementById('add-btn').addEventListener('click', () => openModal('transaction-modal'));
-    
-    // Quick buttons
-    document.querySelectorAll('.quick-btn[data-type]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            state.currentType = btn.dataset.type;
-            updateTypeToggle();
-            populateCategories();
-            openModal('transaction-modal');
-        });
-    });
-
-    // Close modals
-    document.querySelectorAll('.modal-overlay, .close-btn').forEach(el => {
-        el.addEventListener('click', () => {
-            document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
-        });
-    });
-
-    // Type toggle
-    document.querySelectorAll('.type-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            state.currentType = btn.dataset.type;
-            updateTypeToggle();
-            populateCategories();
-        });
-    });
-
-    // Transaction form
-    document.getElementById('transaction-form').addEventListener('submit', saveTransaction);
-
-    // AI button
-    document.getElementById('ai-btn').addEventListener('click', () => openModal('ai-modal'));
-    
-    // AI suggestions
-    document.querySelectorAll('.suggestion-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.getElementById('ai-input').value = btn.dataset.q;
-            sendAIMessage();
-        });
-    });
-
-    // AI send
-    document.getElementById('ai-send').addEventListener('click', sendAIMessage);
-    document.getElementById('ai-input').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendAIMessage();
-    });
-
-    // Profile
-    document.getElementById('profile-btn').addEventListener('click', () => openModal('profile-modal'));
-    
-    // Goals
-    document.getElementById('goals-btn').addEventListener('click', () => openModal('goals-modal'));
-    
-    // Analytics
-    document.getElementById('analytics-btn').addEventListener('click', () => {
-        openModal('analytics-modal');
-        updateAnalytics();
-    });
-
-    // See all transactions
-    document.getElementById('see-all-btn').addEventListener('click', () => {
-        openModal('all-transactions-modal');
-        renderAllTransactions();
-    });
-
-    // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            renderAllTransactions(btn.dataset.filter);
-        });
-    });
-
-    // Settings
-    document.getElementById('currency-select').addEventListener('change', (e) => {
-        state.currency = e.target.value;
-        localStorage.setItem('currency', e.target.value);
-        updateStats();
-        renderTransactions();
-    });
-
-    document.getElementById('gemini-key').addEventListener('change', (e) => {
-        state.geminiKey = e.target.value;
-        localStorage.setItem('geminiKey', e.target.value);
-    });
-
-    // Load saved settings
-    document.getElementById('currency-select').value = state.currency;
-    document.getElementById('gemini-key').value = state.geminiKey;
-
-    // Add goal
-    document.getElementById('add-goal-btn').addEventListener('click', addGoal);
-
-    // Set default date
-    document.getElementById('date').valueAsDate = new Date();
-}
-
-function openModal(id) {
-    document.getElementById(id).classList.add('active');
-}
-
-function closeModal(id) {
-    document.getElementById(id).classList.remove('active');
-}
-
-function updateTypeToggle() {
-    document.querySelectorAll('.type-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.type === state.currentType);
-    });
-}
-
-function populateCategories() {
-    const select = document.getElementById('category');
-    const cats = CATEGORIES[state.currentType];
-    select.innerHTML = '<option value="">Selectează...</option>';
-    Object.entries(cats).forEach(([name, icon]) => {
-        select.innerHTML += `<option value="${name}">${icon} ${name}</option>`;
-    });
-}
-
-// ==========================================
-// DATA OPERATIONS
-// ==========================================
-async function loadData() {
-    if (!state.user) return;
-    
-    try {
-        // Load transactions
-        const transSnap = await db.collection('users').doc(state.user.uid)
-            .collection('transactions')
-            .orderBy('date', 'desc')
-            .limit(100)
-            .get();
-        
-        state.transactions = transSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // Load goals
-        const goalsSnap = await db.collection('users').doc(state.user.uid)
-            .collection('goals')
-            .get();
-        
-        state.goals = goalsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        updateStats();
-        renderTransactions();
-        initChart();
-        renderGoals();
-        
-    } catch (err) {
-        console.error('Load error:', err);
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker registered'))
+            .catch(err => console.log('SW registration failed:', err));
     }
 }
 
-async function saveTransaction(e) {
+// ============================================
+// THEME
+// ============================================
+
+function initTheme() {
+    document.documentElement.setAttribute('data-theme', state.theme);
+}
+
+function toggleTheme() {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('theme', state.theme);
+    document.documentElement.setAttribute('data-theme', state.theme);
+}
+
+// ============================================
+// DATA LOADING & SYNCING
+// ============================================
+
+async function loadData() {
+    // Try to load from localStorage first
+    const cachedTransactions = localStorage.getItem('transactions');
+    const cachedBudgets = localStorage.getItem('budgets');
+    
+    if (cachedTransactions) {
+        state.transactions = JSON.parse(cachedTransactions);
+    }
+    if (cachedBudgets) {
+        state.budgets = JSON.parse(cachedBudgets);
+    }
+    
+    // Initial render with cached data
+    render();
+    hideLoading();
+    
+    // Then sync with server if online
+    if (state.isOnline && API_URL !== 'YOUR_GOOGLE_SCRIPT_URL_HERE') {
+        await syncData();
+    }
+}
+
+async function syncData() {
+    const syncBtn = document.getElementById('sync-btn');
+    syncBtn.classList.add('syncing');
+    
+    try {
+        // Fetch transactions
+        const transResponse = await fetch(`${API_URL}?action=getTransactions`);
+        const transData = await transResponse.json();
+        if (transData.success) {
+            state.transactions = transData.data.map(t => ({
+                ...t,
+                amount: parseFloat(t.amount)
+            }));
+            localStorage.setItem('transactions', JSON.stringify(state.transactions));
+        }
+        
+        // Fetch budgets
+        const budgetResponse = await fetch(`${API_URL}?action=getBudgets`);
+        const budgetData = await budgetResponse.json();
+        if (budgetData.success) {
+            state.budgets = budgetData.data.map(b => ({
+                ...b,
+                budget: parseFloat(b.budget)
+            }));
+            localStorage.setItem('budgets', JSON.stringify(state.budgets));
+        }
+        
+        render();
+    } catch (error) {
+        console.error('Sync error:', error);
+        showToast('Eroare la sincronizare', 'error');
+    } finally {
+        syncBtn.classList.remove('syncing');
+    }
+}
+
+function hideLoading() {
+    setTimeout(() => {
+        document.getElementById('loading-screen').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
+    }, 500);
+}
+
+// ============================================
+// EVENT LISTENERS
+// ============================================
+
+function initEventListeners() {
+    // Theme toggle
+    document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+    
+    // Sync button
+    document.getElementById('sync-btn').addEventListener('click', syncData);
+    
+    // Month navigation
+    document.getElementById('prev-month').addEventListener('click', () => changeMonth(-1));
+    document.getElementById('next-month').addEventListener('click', () => changeMonth(1));
+    
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    });
+    
+    // Add button
+    document.getElementById('add-btn').addEventListener('click', openModal);
+    
+    // Modal
+    document.getElementById('close-modal').addEventListener('click', closeModal);
+    document.getElementById('cancel-btn').addEventListener('click', closeModal);
+    document.querySelector('.modal-backdrop').addEventListener('click', closeModal);
+    
+    // Type selector
+    document.querySelectorAll('.type-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectType(btn.dataset.type));
+    });
+    
+    // Category change
+    document.getElementById('category').addEventListener('change', updateSubcategories);
+    
+    // Form submit
+    document.getElementById('transaction-form').addEventListener('submit', handleSubmit);
+}
+
+// ============================================
+// NAVIGATION
+// ============================================
+
+function changeMonth(delta) {
+    state.currentMonth += delta;
+    
+    if (state.currentMonth > 11) {
+        state.currentMonth = 0;
+        state.currentYear++;
+    } else if (state.currentMonth < 0) {
+        state.currentMonth = 11;
+        state.currentYear--;
+    }
+    
+    render();
+}
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    
+    document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+    document.getElementById(`${tabName}-tab`).classList.add('active');
+}
+
+// ============================================
+// MODAL
+// ============================================
+
+function openModal(transaction = null) {
+    const modal = document.getElementById('transaction-modal');
+    const form = document.getElementById('transaction-form');
+    
+    form.reset();
+    state.editingId = null;
+    
+    if (transaction) {
+        // Edit mode
+        state.editingId = transaction.id;
+        document.getElementById('modal-title').textContent = 'Editează tranzacție';
+        document.getElementById('submit-text').textContent = 'Salvează';
+        
+        const type = transaction.type === 'Venit' ? 'income' : 'expense';
+        selectType(type);
+        
+        document.getElementById('amount').value = Math.abs(transaction.amount);
+        document.getElementById('category').value = transaction.category;
+        updateSubcategories();
+        document.getElementById('subcategory').value = transaction.subcategory;
+        document.getElementById('description').value = transaction.description || '';
+        
+        // Format date
+        const date = new Date(transaction.date);
+        document.getElementById('date').value = date.toISOString().split('T')[0];
+    } else {
+        // Add mode
+        document.getElementById('modal-title').textContent = 'Adaugă tranzacție';
+        document.getElementById('submit-text').textContent = 'Adaugă';
+        selectType('expense');
+        document.getElementById('date').value = new Date().toISOString().split('T')[0];
+    }
+    
+    updateCategoryOptions();
+    modal.classList.add('open');
+}
+
+function closeModal() {
+    document.getElementById('transaction-modal').classList.remove('open');
+    state.editingId = null;
+}
+
+function selectType(type) {
+    state.currentType = type;
+    
+    document.querySelectorAll('.type-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.type === type);
+    });
+    
+    updateCategoryOptions();
+}
+
+function updateCategoryOptions() {
+    const categorySelect = document.getElementById('category');
+    const categories = CATEGORIES[state.currentType];
+    
+    categorySelect.innerHTML = '<option value="">Selectează...</option>';
+    
+    Object.keys(categories).forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = `${categories[cat].icon} ${cat}`;
+        categorySelect.appendChild(option);
+    });
+    
+    document.getElementById('subcategory').innerHTML = '<option value="">Selectează...</option>';
+}
+
+function updateSubcategories() {
+    const category = document.getElementById('category').value;
+    const subcategorySelect = document.getElementById('subcategory');
+    const categories = CATEGORIES[state.currentType];
+    
+    subcategorySelect.innerHTML = '<option value="">Selectează...</option>';
+    
+    if (category && categories[category]) {
+        categories[category].subcategories.forEach(sub => {
+            const option = document.createElement('option');
+            option.value = sub;
+            option.textContent = sub;
+            subcategorySelect.appendChild(option);
+        });
+    }
+}
+
+// ============================================
+// FORM HANDLING
+// ============================================
+
+async function handleSubmit(e) {
     e.preventDefault();
     
     const amount = parseFloat(document.getElementById('amount').value);
     const category = document.getElementById('category').value;
+    const subcategory = document.getElementById('subcategory').value;
     const description = document.getElementById('description').value;
     const date = document.getElementById('date').value;
     
-    if (!amount || !category || !date) {
-        alert('Completează toate câmpurile obligatorii');
-        return;
-    }
-    
     const transaction = {
-        amount: state.currentType === 'income' ? amount : -amount,
-        type: state.currentType,
-        category,
-        description,
-        date,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        date: date,
+        type: state.currentType === 'income' ? 'Venit' : 'Cheltuială',
+        category: category,
+        subcategory: subcategory,
+        description: description,
+        amount: state.currentType === 'income' ? amount : -amount
     };
     
-    try {
-        const doc = await db.collection('users').doc(state.user.uid)
-            .collection('transactions')
-            .add(transaction);
-        
-        state.transactions.unshift({ id: doc.id, ...transaction });
-        
-        closeModal('transaction-modal');
-        document.getElementById('transaction-form').reset();
-        document.getElementById('date').valueAsDate = new Date();
-        
-        updateStats();
-        renderTransactions();
-        updateChart();
-        
-    } catch (err) {
-        alert('Eroare la salvare');
+    if (state.editingId) {
+        await updateTransaction({ ...transaction, id: state.editingId });
+    } else {
+        await addTransaction(transaction);
+    }
+    
+    closeModal();
+}
+
+async function addTransaction(transaction) {
+    // Generate local ID
+    const localId = 'local_' + Date.now();
+    const newTransaction = { ...transaction, id: localId };
+    
+    // Add to local state immediately
+    state.transactions.push(newTransaction);
+    localStorage.setItem('transactions', JSON.stringify(state.transactions));
+    render();
+    showToast('Tranzacție adăugată!', 'success');
+    
+    // Sync with server if online
+    if (state.isOnline && API_URL !== 'YOUR_GOOGLE_SCRIPT_URL_HERE') {
+        try {
+            const params = new URLSearchParams({
+                action: 'addTransaction',
+                ...transaction
+            });
+            
+            const response = await fetch(`${API_URL}?${params}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                // Update local ID with server ID
+                const index = state.transactions.findIndex(t => t.id === localId);
+                if (index !== -1) {
+                    state.transactions[index].id = data.id;
+                    localStorage.setItem('transactions', JSON.stringify(state.transactions));
+                }
+            }
+        } catch (error) {
+            console.error('Add error:', error);
+        }
+    }
+}
+
+async function updateTransaction(transaction) {
+    // Update locally
+    const index = state.transactions.findIndex(t => t.id === transaction.id);
+    if (index !== -1) {
+        state.transactions[index] = transaction;
+        localStorage.setItem('transactions', JSON.stringify(state.transactions));
+        render();
+        showToast('Tranzacție actualizată!', 'success');
+    }
+    
+    // Sync with server
+    if (state.isOnline && API_URL !== 'YOUR_GOOGLE_SCRIPT_URL_HERE') {
+        try {
+            const params = new URLSearchParams({
+                action: 'updateTransaction',
+                ...transaction
+            });
+            await fetch(`${API_URL}?${params}`);
+        } catch (error) {
+            console.error('Update error:', error);
+        }
     }
 }
 
 async function deleteTransaction(id) {
     if (!confirm('Ștergi această tranzacție?')) return;
     
-    try {
-        await db.collection('users').doc(state.user.uid)
-            .collection('transactions')
-            .doc(id)
-            .delete();
-        
-        state.transactions = state.transactions.filter(t => t.id !== id);
-        updateStats();
-        renderTransactions();
-        updateChart();
-        
-    } catch (err) {
-        alert('Eroare la ștergere');
+    // Delete locally
+    state.transactions = state.transactions.filter(t => t.id !== id);
+    localStorage.setItem('transactions', JSON.stringify(state.transactions));
+    render();
+    showToast('Tranzacție ștearsă!', 'success');
+    
+    // Sync with server
+    if (state.isOnline && API_URL !== 'YOUR_GOOGLE_SCRIPT_URL_HERE') {
+        try {
+            const params = new URLSearchParams({ action: 'deleteTransaction', id });
+            await fetch(`${API_URL}?${params}`);
+        } catch (error) {
+            console.error('Delete error:', error);
+        }
     }
 }
 
-// ==========================================
-// UI UPDATES
-// ==========================================
-function updateUserUI() {
-    const name = state.user.displayName || 'Utilizator';
-    document.getElementById('user-name').textContent = name;
-    document.getElementById('profile-name').textContent = name;
-    document.getElementById('profile-email').textContent = state.user.email;
-    document.getElementById('profile-avatar').textContent = name.charAt(0).toUpperCase();
-    
-    updateGreeting();
+// ============================================
+// RENDERING
+// ============================================
+
+function render() {
+    renderMonth();
+    renderStats();
+    renderTransactions();
+    renderCategories();
+    renderBudgets();
 }
 
-function updateGreeting() {
-    const hour = new Date().getHours();
-    let greeting = 'Bună seara';
-    if (hour >= 5 && hour < 12) greeting = 'Bună dimineața';
-    else if (hour >= 12 && hour < 18) greeting = 'Bună ziua';
-    document.getElementById('greeting-text').textContent = greeting + ' 👋';
+function renderMonth() {
+    document.getElementById('current-month').textContent = 
+        `${MONTHS_RO[state.currentMonth]} ${state.currentYear}`;
 }
 
-function updateStats() {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+function renderStats() {
+    const filtered = getFilteredTransactions();
     
-    const monthTransactions = state.transactions.filter(t => {
-        const d = new Date(t.date);
-        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    });
-    
-    const income = monthTransactions
-        .filter(t => t.type === 'income')
+    const income = filtered
+        .filter(t => t.type === 'Venit')
         .reduce((sum, t) => sum + Math.abs(t.amount), 0);
     
-    const expense = monthTransactions
-        .filter(t => t.type === 'expense')
+    const expenses = filtered
+        .filter(t => t.type === 'Cheltuială')
         .reduce((sum, t) => sum + Math.abs(t.amount), 0);
     
-    const balance = income - expense;
+    const balance = income - expenses;
     
-    document.getElementById('total-balance').textContent = formatMoney(balance);
+    const totalBudget = state.budgets.reduce((sum, b) => sum + b.budget, 0);
+    const budgetPercent = totalBudget > 0 ? Math.round((expenses / totalBudget) * 100) : 0;
+    
     document.getElementById('total-income').textContent = formatMoney(income);
-    document.getElementById('total-expense').textContent = formatMoney(expense);
+    document.getElementById('total-expenses').textContent = formatMoney(expenses);
+    document.getElementById('balance').textContent = formatMoney(balance);
+    document.getElementById('budget-percent').textContent = `${budgetPercent}%`;
+    
+    const budgetFill = document.getElementById('budget-fill');
+    budgetFill.style.width = `${Math.min(budgetPercent, 100)}%`;
+    budgetFill.classList.remove('warning', 'danger');
+    if (budgetPercent > 100) budgetFill.classList.add('danger');
+    else if (budgetPercent > 80) budgetFill.classList.add('warning');
 }
 
 function renderTransactions() {
     const container = document.getElementById('transactions-list');
-    const recent = state.transactions.slice(0, 5);
+    const emptyState = document.getElementById('empty-transactions');
+    const filtered = getFilteredTransactions();
     
-    if (recent.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">📭</span>
-                <p>Nicio tranzacție încă</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = recent.map(t => createTransactionHTML(t)).join('');
-}
-
-function renderAllTransactions(filter = 'all') {
-    const container = document.getElementById('all-transactions-list');
-    let filtered = [...state.transactions];
-    
-    if (filter === 'expense') {
-        filtered = filtered.filter(t => t.type === 'expense');
-    } else if (filter === 'income') {
-        filtered = filtered.filter(t => t.type === 'income');
-    }
+    // Sort by date descending
+    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
     
     if (filtered.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">📭</span>
-                <p>Nicio tranzacție</p>
-            </div>
-        `;
+        container.innerHTML = '';
+        emptyState.classList.remove('hidden');
         return;
     }
     
-    container.innerHTML = filtered.map(t => createTransactionHTML(t)).join('');
-}
-
-function createTransactionHTML(t) {
-    const icon = CATEGORIES[t.type]?.[t.category] || '📦';
-    const isIncome = t.type === 'income';
-    const date = new Date(t.date).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' });
+    emptyState.classList.add('hidden');
     
-    return `
-        <div class="transaction-item" onclick="deleteTransaction('${t.id}')">
-            <div class="transaction-icon">${icon}</div>
-            <div class="transaction-info">
-                <div class="transaction-category">${t.category}</div>
-                <div class="transaction-date">${date}${t.description ? ' • ' + t.description : ''}</div>
-            </div>
-            <div class="transaction-amount ${isIncome ? 'income' : 'expense'}">
-                ${isIncome ? '+' : '-'}${formatMoney(Math.abs(t.amount))}
-            </div>
-        </div>
-    `;
-}
-
-function formatMoney(amount) {
-    return new Intl.NumberFormat('ro-RO').format(Math.round(amount)) + ' ' + state.currency;
-}
-
-// ==========================================
-// CHART
-// ==========================================
-function initChart() {
-    const ctx = document.getElementById('chart');
-    if (!ctx) return;
-    
-    state.chart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: [],
-            datasets: [{
-                data: [],
-                backgroundColor: [
-                    '#7c3aed', '#f59e0b', '#10b981', '#ef4444', 
-                    '#06b6d4', '#ec4899', '#8b5cf6', '#f97316'
-                ],
-                borderWidth: 0
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '70%',
-            plugins: {
-                legend: { display: false }
-            }
-        }
-    });
-    
-    updateChart();
-}
-
-function updateChart() {
-    if (!state.chart) return;
-    
-    const now = new Date();
-    const expenses = state.transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'expense' && 
-               d.getMonth() === now.getMonth() && 
-               d.getFullYear() === now.getFullYear();
-    });
-    
-    const byCategory = {};
-    expenses.forEach(t => {
-        if (!byCategory[t.category]) byCategory[t.category] = 0;
-        byCategory[t.category] += Math.abs(t.amount);
-    });
-    
-    const sorted = Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 6);
-    
-    state.chart.data.labels = sorted.map(([cat]) => cat);
-    state.chart.data.datasets[0].data = sorted.map(([, val]) => val);
-    state.chart.update();
-}
-
-// ==========================================
-// GOALS
-// ==========================================
-function renderGoals() {
-    const container = document.getElementById('goals-list');
-    
-    if (state.goals.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <span class="empty-icon">🎯</span>
-                <p>Niciun obiectiv setat</p>
-            </div>
-        `;
-        return;
-    }
-    
-    container.innerHTML = state.goals.map(g => {
-        const percent = Math.min(Math.round((g.saved / g.target) * 100), 100);
+    container.innerHTML = filtered.map(t => {
+        const isIncome = t.type === 'Venit';
+        const categories = CATEGORIES[isIncome ? 'income' : 'expense'];
+        const icon = categories[t.category]?.icon || '📦';
+        const date = new Date(t.date);
+        const dateStr = `${date.getDate()} ${MONTHS_RO[date.getMonth()].slice(0, 3)}`;
+        
         return `
-            <div class="goal-item">
-                <div class="goal-header">
-                    <div class="goal-name">${g.icon || '🎯'} ${g.name}</div>
-                    <span>${percent}%</span>
+            <div class="transaction-item ${isIncome ? 'income' : 'expense'}" data-id="${t.id}">
+                <div class="transaction-icon">${icon}</div>
+                <div class="transaction-info">
+                    <div class="transaction-category">${t.subcategory || t.category}</div>
+                    <div class="transaction-meta">${t.description || t.category} • ${dateStr}</div>
                 </div>
-                <div class="goal-progress">
-                    <div class="goal-fill" style="width: ${percent}%"></div>
-                </div>
-                <div class="goal-info">
-                    <span>${formatMoney(g.saved)} economisiți</span>
-                    <span>din ${formatMoney(g.target)}</span>
+                <div class="transaction-amount">${isIncome ? '+' : ''}${formatMoney(t.amount)}</div>
+                <div class="transaction-actions">
+                    <button class="transaction-action" onclick="editTransaction('${t.id}')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                    </button>
+                    <button class="transaction-action" onclick="deleteTransaction('${t.id}')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
         `;
     }).join('');
 }
 
-async function addGoal() {
-    const name = prompt('Nume obiectiv:');
-    if (!name) return;
+function renderCategories() {
+    const container = document.getElementById('categories-grid');
+    const filtered = getFilteredTransactions().filter(t => t.type === 'Cheltuială');
     
-    const target = parseFloat(prompt('Sumă țintă (RON):'));
-    if (!target || isNaN(target)) return;
+    // Group by category
+    const byCategory = {};
+    filtered.forEach(t => {
+        if (!byCategory[t.category]) {
+            byCategory[t.category] = { total: 0, subcategories: {} };
+        }
+        byCategory[t.category].total += Math.abs(t.amount);
+        
+        if (!byCategory[t.category].subcategories[t.subcategory]) {
+            byCategory[t.category].subcategories[t.subcategory] = 0;
+        }
+        byCategory[t.category].subcategories[t.subcategory] += Math.abs(t.amount);
+    });
     
-    const goal = {
-        name,
-        target,
-        saved: 0,
-        icon: '🎯',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    // Calculate budgets by category
+    const budgetByCategory = {};
+    state.budgets.forEach(b => {
+        if (!budgetByCategory[b.category]) {
+            budgetByCategory[b.category] = 0;
+        }
+        budgetByCategory[b.category] += b.budget;
+    });
+    
+    container.innerHTML = Object.entries(byCategory)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([category, data]) => {
+            const icon = CATEGORIES.expense[category]?.icon || '📦';
+            const budget = budgetByCategory[category] || 0;
+            const percent = budget > 0 ? Math.round((data.total / budget) * 100) : 0;
+            const progressClass = percent > 100 ? 'danger' : percent > 80 ? 'warning' : '';
+            
+            const subcatHtml = Object.entries(data.subcategories)
+                .sort((a, b) => b[1] - a[1])
+                .map(([sub, amount]) => `
+                    <div class="subcategory-item">
+                        <span class="subcategory-name">${sub}</span>
+                        <span class="subcategory-amount">${formatMoney(amount)}</span>
+                    </div>
+                `).join('');
+            
+            return `
+                <div class="category-card" onclick="toggleCategory(this)">
+                    <div class="category-header">
+                        <div class="category-main">
+                            <div class="category-icon">${icon}</div>
+                            <span class="category-name">${category}</span>
+                        </div>
+                        <div class="category-stats">
+                            <div class="category-spent">${formatMoney(data.total)}</div>
+                            ${budget > 0 ? `<div class="category-budget">din ${formatMoney(budget)}</div>` : ''}
+                        </div>
+                        <svg class="expand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18l6-6-6-6"/>
+                        </svg>
+                    </div>
+                    <div class="category-progress">
+                        <div class="category-progress-fill ${progressClass}" style="width: ${Math.min(percent, 100)}%"></div>
+                    </div>
+                    <div class="category-subcategories">
+                        ${subcatHtml}
+                    </div>
+                </div>
+            `;
+        }).join('');
+}
+
+function renderBudgets() {
+    const container = document.getElementById('budgets-list');
+    
+    // Get all subcategories from expense categories
+    const allBudgets = [];
+    Object.entries(CATEGORIES.expense).forEach(([category, data]) => {
+        data.subcategories.forEach(subcategory => {
+            const existing = state.budgets.find(b => 
+                b.category === category && b.subcategory === subcategory
+            );
+            allBudgets.push({
+                category,
+                subcategory,
+                budget: existing?.budget || 0,
+                icon: data.icon
+            });
+        });
+    });
+    
+    container.innerHTML = allBudgets.map(b => `
+        <div class="budget-item">
+            <div class="budget-info">
+                <div class="budget-category">${b.icon} ${b.category}</div>
+                <div class="budget-subcategory">${b.subcategory}</div>
+            </div>
+            <div class="budget-value">
+                <input type="number" class="budget-input" 
+                    value="${b.budget}" 
+                    data-category="${b.category}"
+                    data-subcategory="${b.subcategory}"
+                    onchange="updateBudget(this)">
+                <span class="budget-currency">RON</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+// ============================================
+// HELPERS
+// ============================================
+
+function getFilteredTransactions() {
+    return state.transactions.filter(t => {
+        const date = new Date(t.date);
+        return date.getMonth() === state.currentMonth && 
+               date.getFullYear() === state.currentYear;
+    });
+}
+
+function formatMoney(amount) {
+    const absAmount = Math.abs(amount);
+    return new Intl.NumberFormat('ro-RO', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(absAmount) + ' RON';
+}
+
+function toggleCategory(element) {
+    element.classList.toggle('expanded');
+}
+
+function editTransaction(id) {
+    const transaction = state.transactions.find(t => t.id === id);
+    if (transaction) {
+        openModal(transaction);
+    }
+}
+
+async function updateBudget(input) {
+    const category = input.dataset.category;
+    const subcategory = input.dataset.subcategory;
+    const budget = parseFloat(input.value) || 0;
+    
+    // Update local state
+    const existingIndex = state.budgets.findIndex(b => 
+        b.category === category && b.subcategory === subcategory
+    );
+    
+    if (existingIndex !== -1) {
+        state.budgets[existingIndex].budget = budget;
+    } else {
+        state.budgets.push({ category, subcategory, budget });
+    }
+    
+    localStorage.setItem('budgets', JSON.stringify(state.budgets));
+    renderStats();
+    renderCategories();
+    
+    // Sync with server
+    if (state.isOnline && API_URL !== 'YOUR_GOOGLE_SCRIPT_URL_HERE') {
+        try {
+            const params = new URLSearchParams({
+                action: 'updateBudget',
+                category,
+                subcategory,
+                budget
+            });
+            await fetch(`${API_URL}?${params}`);
+        } catch (error) {
+            console.error('Budget update error:', error);
+        }
+    }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    const icons = {
+        success: '✅',
+        error: '❌',
+        info: 'ℹ️'
     };
     
-    try {
-        const doc = await db.collection('users').doc(state.user.uid)
-            .collection('goals')
-            .add(goal);
-        
-        state.goals.push({ id: doc.id, ...goal });
-        renderGoals();
-        
-    } catch (err) {
-        alert('Eroare la creare obiectiv');
-    }
-}
-
-// ==========================================
-// ANALYTICS
-// ==========================================
-function updateAnalytics() {
-    const now = new Date();
-    const monthExpenses = state.transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'expense' && 
-               d.getMonth() === now.getMonth() && 
-               d.getFullYear() === now.getFullYear();
-    });
-    
-    const total = monthExpenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const days = now.getDate();
-    const dailyAvg = days > 0 ? total / days : 0;
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const prediction = total + (dailyAvg * (daysInMonth - days));
-    
-    document.getElementById('daily-avg').textContent = formatMoney(dailyAvg);
-    document.getElementById('month-prediction').textContent = formatMoney(prediction);
-    
-    // Patterns
-    const patterns = [];
-    
-    if (monthExpenses.length >= 3) {
-        const byCategory = {};
-        monthExpenses.forEach(t => {
-            if (!byCategory[t.category]) byCategory[t.category] = 0;
-            byCategory[t.category] += Math.abs(t.amount);
-        });
-        
-        const topCat = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
-        if (topCat) {
-            const percent = Math.round((topCat[1] / total) * 100);
-            patterns.push({
-                icon: CATEGORIES.expense[topCat[0]] || '📦',
-                text: `${topCat[0]} reprezintă ${percent}% din cheltuieli`
-            });
-        }
-        
-        // Weekend spending
-        const weekendTotal = monthExpenses.filter(t => {
-            const day = new Date(t.date).getDay();
-            return day === 0 || day === 6;
-        }).reduce((sum, t) => sum + Math.abs(t.amount), 0);
-        
-        const weekendPercent = Math.round((weekendTotal / total) * 100);
-        if (weekendPercent > 35) {
-            patterns.push({
-                icon: '📅',
-                text: `${weekendPercent}% din cheltuieli sunt în weekend`
-            });
-        }
-    }
-    
-    const patternsContainer = document.getElementById('patterns-list');
-    if (patterns.length === 0) {
-        patternsContainer.innerHTML = `
-            <div class="pattern-item">
-                <span class="pattern-icon">📊</span>
-                <span class="pattern-text">Adaugă mai multe tranzacții pentru analize</span>
-            </div>
-        `;
-    } else {
-        patternsContainer.innerHTML = patterns.map(p => `
-            <div class="pattern-item">
-                <span class="pattern-icon">${p.icon}</span>
-                <span class="pattern-text">${p.text}</span>
-            </div>
-        `).join('');
-    }
-}
-
-// ==========================================
-// AI CHAT
-// ==========================================
-async function sendAIMessage() {
-    const input = document.getElementById('ai-input');
-    const message = input.value.trim();
-    if (!message) return;
-    
-    const container = document.getElementById('ai-messages');
-    
-    // User message
-    container.innerHTML += `
-        <div class="ai-message user">
-            <div class="message-bubble">${escapeHtml(message)}</div>
-        </div>
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${icons[type]}</span>
+        <span class="toast-message">${message}</span>
     `;
     
-    input.value = '';
-    container.scrollTop = container.scrollHeight;
+    container.appendChild(toast);
     
-    // Generate response
-    let response;
-    if (state.geminiKey) {
-        response = await callGeminiAPI(message);
-    } else {
-        response = generateLocalResponse(message);
-    }
-    
-    // Bot response
-    container.innerHTML += `
-        <div class="ai-message bot">
-            <div class="message-bubble">${response}</div>
-        </div>
-    `;
-    container.scrollTop = container.scrollHeight;
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
 }
 
-function generateLocalResponse(message) {
-    const msg = message.toLowerCase();
-    
-    const now = new Date();
-    const monthExpenses = state.transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'expense' && 
-               d.getMonth() === now.getMonth() && 
-               d.getFullYear() === now.getFullYear();
-    });
-    
-    const monthIncome = state.transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'income' && 
-               d.getMonth() === now.getMonth() && 
-               d.getFullYear() === now.getFullYear();
-    });
-    
-    const totalExpense = monthExpenses.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const totalIncome = monthIncome.reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    
-    if (msg.includes('cheltuieli') || msg.includes('cheltuit')) {
-        if (totalExpense === 0) {
-            return '📊 Nu ai cheltuieli înregistrate luna aceasta.';
-        }
-        
-        const byCategory = {};
-        monthExpenses.forEach(t => {
-            if (!byCategory[t.category]) byCategory[t.category] = 0;
-            byCategory[t.category] += Math.abs(t.amount);
-        });
-        
-        const top = Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 3);
-        let r = `📊 <b>Total cheltuieli:</b> ${formatMoney(totalExpense)}<br><br><b>Top categorii:</b><br>`;
-        top.forEach(([cat, val], i) => {
-            const percent = Math.round((val / totalExpense) * 100);
-            r += `${i + 1}. ${cat}: ${formatMoney(val)} (${percent}%)<br>`;
-        });
-        return r;
-    }
-    
-    if (msg.includes('economisi') || msg.includes('sfat')) {
-        const balance = totalIncome - totalExpense;
-        const rate = totalIncome > 0 ? Math.round((balance / totalIncome) * 100) : 0;
-        
-        if (balance > 0) {
-            return `💰 Economisești <b>${rate}%</b> din venituri (${formatMoney(balance)})<br><br>${rate >= 20 ? '🎉 Excelent! Ești peste media recomandată de 20%.' : '💡 Sfat: Țintește spre 20% economii din venituri.'}`;
-        } else {
-            return `⚠️ Cheltuielile depășesc veniturile cu ${formatMoney(Math.abs(balance))}.<br><br><b>Sfaturi:</b><br>• Verifică abonamentele nefolosite<br>• Setează un buget pentru fiecare categorie<br>• Folosește regula 50/30/20`;
-        }
-    }
-    
-    if (msg.includes('trend') || msg.includes('tendință')) {
-        const days = now.getDate();
-        const dailyAvg = days > 0 ? totalExpense / days : 0;
-        return `📈 <b>Tendințe luna aceasta:</b><br><br>Media zilnică: ${formatMoney(dailyAvg)}<br>Total venituri: ${formatMoney(totalIncome)}<br>Total cheltuieli: ${formatMoney(totalExpense)}<br>Balanță: ${formatMoney(totalIncome - totalExpense)}`;
-    }
-    
-    return `👋 Te pot ajuta cu:<br>• <b>"Top cheltuieli"</b> - vezi pe ce cheltui<br>• <b>"Sfaturi economisire"</b> - cum să economisești<br>• <b>"Analizează trendurile"</b> - vezi tendințele`;
-}
-
-async function callGeminiAPI(message) {
-    const context = `Sunt un utilizator român și am:
-- Cheltuieli luna aceasta: ${state.transactions.filter(t => t.type === 'expense').reduce((s,t) => s + Math.abs(t.amount), 0)} RON
-- Venituri luna aceasta: ${state.transactions.filter(t => t.type === 'income').reduce((s,t) => s + Math.abs(t.amount), 0)} RON
-- ${state.transactions.length} tranzacții totale`;
-
-    try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${state.geminiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: `${context}\n\nÎntrebare: ${message}\n\nRăspunde concis în română, cu sfaturi practice.`
-                    }]
-                }]
-            })
-        });
-        
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || generateLocalResponse(message);
-    } catch (err) {
-        return generateLocalResponse(message);
-    }
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-// Make functions globally available
+// Make functions available globally
+window.editTransaction = editTransaction;
 window.deleteTransaction = deleteTransaction;
+window.toggleCategory = toggleCategory;
+window.updateBudget = updateBudget;
