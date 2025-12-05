@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f0f1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Budget Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- AUTH SCREEN -->
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-container">
+            <div class="auth-header">
+                <div class="auth-logo">💰</div>
+                <h1>Budget Pro</h1>
+                <p>Gestionează-ți finanțele inteligent</p>
+            </div>
+            
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">Conectare</button>
+                <button class="auth-tab" data-tab="register">Înregistrare</button>
+            </div>
+            
+            <form id="login-form" class="auth-form">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="email@exemplu.com" required>
+                </div>
+                <div class="input-group">
+                    <label>Parolă</label>
+                    <input type="password" id="login-password" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-primary">Conectează-te</button>
+            </form>
+            
+            <form id="register-form" class="auth-form hidden">
+                <div class="input-group">
+                    <label>Nume</label>
+                    <input type="text" id="register-name" placeholder="Numele tău" required>
+                </div>
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="register-email" placeholder="email@exemplu.com" required>
+                </div>
+                <div class="input-group">
+                    <label>Parolă</label>
+                    <input type="password" id="register-password" placeholder="Minim 6 caractere" required>
+                </div>
+                <button type="submit" class="btn-primary">Creează cont</button>
+            </form>
+            
+            <div class="auth-divider">
+                <span>sau</span>
+            </div>
+            
+            <button id="google-btn" class="btn-google">
+                <svg viewBox="0 0 24 24" width="20" height="20"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Continuă cu Google
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="app" class="app hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="greeting">
+                    <span id="greeting-text">Bună ziua</span>
+                    <h2 id="user-name">Utilizator</h2>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="icon-btn" id="ai-btn">🤖</button>
+                <button class="icon-btn" id="profile-btn">👤</button>
+            </div>
+        </header>
+
+        <!-- Balance Card -->
+        <section class="balance-card">
+            <div class="balance-label">Balanța totală</div>
+            <div class="balance-amount" id="total-balance">0 RON</div>
+            <div class="balance-stats">
+                <div class="stat">
+                    <span class="stat-icon income">↓</span>
+                    <div>
+                        <div class="stat-label">Venituri</div>
+                        <div class="stat-value" id="total-income">0 RON</div>
+                    </div>
+                </div>
+                <div class="stat">
+                    <span class="stat-icon expense">↑</span>
+                    <div>
+                        <div class="stat-label">Cheltuieli</div>
+                        <div class="stat-value" id="total-expense">0 RON</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="quick-actions">
+            <button class="quick-btn" data-type="expense">
+                <span class="quick-icon expense">−</span>
+                <span>Cheltuială</span>
+            </button>
+            <button class="quick-btn" data-type="income">
+                <span class="quick-icon income">+</span>
+                <span>Venit</span>
+            </button>
+            <button class="quick-btn" id="goals-btn">
+                <span class="quick-icon goals">🎯</span>
+                <span>Obiective</span>
+            </button>
+            <button class="quick-btn" id="analytics-btn">
+                <span class="quick-icon analytics">📊</span>
+                <span>Analize</span>
+            </button>
+        </section>
+
+        <!-- Chart Section -->
+        <section class="chart-section">
+            <div class="section-header">
+                <h3>📊 Cheltuieli pe categorii</h3>
+            </div>
+            <div class="chart-container">
+                <canvas id="chart"></canvas>
+            </div>
+        </section>
+
+        <!-- Recent Transactions -->
+        <section class="transactions-section">
+            <div class="section-header">
+                <h3>📝 Tranzacții recente</h3>
+                <button class="see-all" id="see-all-btn">Vezi toate →</button>
+            </div>
+            <div id="transactions-list" class="transactions-list">
+                <div class="empty-state">
+                    <span class="empty-icon">📭</span>
+                    <p>Nicio tranzacție încă</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bottom Nav -->
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-view="home">
+                <span>🏠</span>
+                <span>Acasă</span>
+            </button>
+            <button class="nav-btn" data-view="transactions">
+                <span>📝</span>
+                <span>Tranzacții</span>
+            </button>
+            <button class="nav-btn add-btn" id="add-btn">
+                <span class="add-icon">+</span>
+            </button>
+            <button class="nav-btn" data-view="goals">
+                <span>🎯</span>
+                <span>Obiective</span>
+            </button>
+            <button class="nav-btn" data-view="profile">
+                <span>👤</span>
+                <span>Profil</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Transaction Modal -->
+    <div id="transaction-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Adaugă tranzacție</h3>
+                <button class="close-btn" id="close-modal">✕</button>
+            </div>
+            <form id="transaction-form">
+                <div class="type-toggle">
+                    <button type="button" class="type-btn active" data-type="expense">Cheltuială</button>
+                    <button type="button" class="type-btn" data-type="income">Venit</button>
+                </div>
+                <div class="input-group">
+                    <label>Sumă (RON)</label>
+                    <input type="number" id="amount" placeholder="0.00" step="0.01" required>
+                </div>
+                <div class="input-group">
+                    <label>Categorie</label>
+                    <select id="category" required>
+                        <option value="">Selectează...</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Descriere</label>
+                    <input type="text" id="description" placeholder="Opțional">
+                </div>
+                <div class="input-group">
+                    <label>Data</label>
+                    <input type="date" id="date" required>
+                </div>
+                <button type="submit" class="btn-primary">Salvează</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- AI Modal -->
+    <div id="ai-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content ai-modal">
+            <div class="modal-header">
+                <div class="ai-header-info">
+                    <span class="ai-avatar">🤖</span>
+                    <div>
+                        <h3>Asistent AI</h3>
+                        <span class="ai-status">Online</span>
+                    </div>
+                </div>
+                <button class="close-btn" id="close-ai">✕</button>
+            </div>
+            <div id="ai-messages" class="ai-messages">
+                <div class="ai-message bot">
+                    <div class="message-bubble">
+                        Salut! 👋 Sunt asistentul tău financiar. Pot analiza cheltuielile tale și îți pot da sfaturi personalizate. Ce te interesează?
+                    </div>
+                </div>
+            </div>
+            <div class="ai-suggestions">
+                <button class="suggestion-btn" data-q="Care sunt cheltuielile mele mari?">💰 Top cheltuieli</button>
+                <button class="suggestion-btn" data-q="Cum pot economisi?">💡 Sfaturi</button>
+                <button class="suggestion-btn" data-q="Analizează trendurile">📈 Trenduri</button>
+            </div>
+            <div class="ai-input-area">
+                <input type="text" id="ai-input" placeholder="Scrie un mesaj...">
+                <button id="ai-send">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Goals Modal -->
+    <div id="goals-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🎯 Obiective</h3>
+                <button class="close-btn" id="close-goals">✕</button>
+            </div>
+            <div id="goals-list" class="goals-list">
+                <div class="empty-state">
+                    <span class="empty-icon">🎯</span>
+                    <p>Niciun obiectiv setat</p>
+                </div>
+            </div>
+            <button class="btn-primary" id="add-goal-btn">+ Adaugă obiectiv</button>
+        </div>
+    </div>
+
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>👤 Profil</h3>
+                <button class="close-btn" id="close-profile">✕</button>
+            </div>
+            <div class="profile-info">
+                <div class="profile-avatar" id="profile-avatar">U</div>
+                <div class="profile-name" id="profile-name">Utilizator</div>
+                <div class="profile-email" id="profile-email">email@exemplu.com</div>
+            </div>
+            <div class="settings-list">
+                <div class="setting-item">
+                    <span>🌙 Temă întunecată</span>
+                    <label class="switch">
+                        <input type="checkbox" id="theme-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <span>💱 Monedă</span>
+                    <select id="currency-select">
+                        <option value="RON">RON</option>
+                        <option value="EUR">EUR</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <span>🤖 API Gemini</span>
+                    <input type="password" id="gemini-key" placeholder="Cheie API">
+                </div>
+            </div>
+            <button class="btn-danger" id="logout-btn">🚪 Deconectare</button>
+        </div>
+    </div>
+
+    <!-- All Transactions Modal -->
+    <div id="all-transactions-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content full-modal">
+            <div class="modal-header">
+                <h3>📝 Toate tranzacțiile</h3>
+                <button class="close-btn" id="close-all-trans">✕</button>
+            </div>
+            <div class="filter-bar">
+                <button class="filter-btn active" data-filter="all">Toate</button>
+                <button class="filter-btn" data-filter="expense">Cheltuieli</button>
+                <button class="filter-btn" data-filter="income">Venituri</button>
+            </div>
+            <div id="all-transactions-list" class="transactions-list"></div>
+        </div>
+    </div>
+
+    <!-- Analytics Modal -->
+    <div id="analytics-modal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content full-modal">
+            <div class="modal-header">
+                <h3>📊 Analize</h3>
+                <button class="close-btn" id="close-analytics">✕</button>
+            </div>
+            <div class="analytics-content">
+                <div class="analytics-cards">
+                    <div class="analytics-card">
+                        <div class="card-icon">📅</div>
+                        <div class="card-value" id="daily-avg">0 RON</div>
+                        <div class="card-label">Media zilnică</div>
+                    </div>
+                    <div class="analytics-card">
+                        <div class="card-icon">🎯</div>
+                        <div class="card-value" id="month-prediction">0 RON</div>
+                        <div class="card-label">Predicție lunară</div>
+                    </div>
+                </div>
+                <div class="patterns-section">
+                    <h4>🔍 Pattern-uri detectate</h4>
+                    <div id="patterns-list" class="patterns-list"></div>
+                </div>
+                <div class="trends-section">
+                    <h4>📈 Tendințe</h4>
+                    <div class="chart-container">
+                        <canvas id="trend-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
