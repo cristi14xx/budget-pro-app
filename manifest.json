@@ -1,27 +1,10 @@
 {
-    "name": "Budget Tracker",
-    "short_name": "Budget",
-    "description": "Monitor personal de venituri și cheltuieli",
-    "start_url": "/budget-tracker/",
+    "name": "Budget Pro",
+    "short_name": "Budget Pro",
+    "description": "Gestionează-ți finanțele inteligent cu AI",
+    "start_url": "./",
     "display": "standalone",
-    "background_color": "#0f172a",
-    "theme_color": "#0f172a",
-    "orientation": "portrait-primary",
-    "icons": [
-        {
-            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230f172a' width='100' height='100' rx='20'/><text y='.9em' x='50%' text-anchor='middle' font-size='70'>💰</text></svg>",
-            "sizes": "192x192",
-            "type": "image/svg+xml",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230f172a' width='100' height='100' rx='20'/><text y='.9em' x='50%' text-anchor='middle' font-size='70'>💰</text></svg>",
-            "sizes": "512x512",
-            "type": "image/svg+xml",
-            "purpose": "any maskable"
-        }
-    ],
-    "categories": ["finance", "utilities"],
-    "lang": "ro",
-    "dir": "ltr"
+    "background_color": "#0a0a0f",
+    "theme_color": "#7c3aed",
+    "icons": [{"src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%237c3aed' width='100' height='100' rx='20'/><text x='50' y='65' font-size='50' text-anchor='middle'>💰</text></svg>","sizes": "192x192","type": "image/svg+xml"}]
 }
